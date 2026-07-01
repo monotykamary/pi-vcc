@@ -1,5 +1,5 @@
 import { describe, test, expect } from "bun:test";
-import { getModelThreshold, resolveReserveTokens, type PiVccSettings, type ModelThreshold } from "../src/core/settings";
+import { getModelThreshold, resolveReserveTokens, resolveTriggerTokens, type PiVccSettings, type ModelThreshold } from "../src/core/settings";
 
 const t = (reserveTokens: number, keepRecentTokens?: number): ModelThreshold => ({
   reserveTokens,
@@ -164,6 +164,34 @@ describe("getModelThreshold", () => {
     expect(getModelThreshold(settings, { id: "moonshotai/Kimi-K2.6", provider: "neuralwatt" })).toEqual(t(65536));
     expect(getModelThreshold(settings, { id: "deepseek-ai/DeepSeek-V4-Pro", provider: "makora" })).toEqual(t(32768));
     expect(getModelThreshold(settings, { id: "unknown-model", provider: "other" })).toEqual(t(16384));
+  });
+});
+
+describe("resolveTriggerTokens", () => {
+  test("returns compactAtTokens as the absolute trigger point", () => {
+    expect(resolveTriggerTokens({ compactAtTokens: 150000 }, 1000000)).toBe(150000);
+  });
+
+  test("resolves compactPercent to its trigger point", () => {
+    expect(resolveTriggerTokens({ compactPercent: 65 }, 128000)).toBe(83200);
+  });
+
+  test("reserveTokens takes precedence over compactAtTokens", () => {
+    expect(resolveTriggerTokens({ reserveTokens: 50000, compactAtTokens: 100000 }, 200000)).toBe(150000);
+  });
+
+  test("compactAtTokens takes precedence over compactPercent", () => {
+    expect(resolveTriggerTokens({ compactAtTokens: 150000, compactPercent: 65 }, 200000)).toBe(150000);
+  });
+
+  test("returns undefined for invalid compactAtTokens", () => {
+    expect(resolveTriggerTokens({ compactAtTokens: 0 }, 200000)).toBeUndefined();
+    expect(resolveTriggerTokens({ compactAtTokens: -1 }, 200000)).toBeUndefined();
+    expect(resolveTriggerTokens({ compactAtTokens: Number.POSITIVE_INFINITY }, 200000)).toBeUndefined();
+  });
+
+  test("returns undefined when contextWindow is 0", () => {
+    expect(resolveTriggerTokens({ compactAtTokens: 150000 }, 0)).toBeUndefined();
   });
 });
 

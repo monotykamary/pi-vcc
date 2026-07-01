@@ -19,9 +19,20 @@ export interface ModelThreshold {
    * A higher value compacts earlier (more conservative); a lower value
    * lets context grow larger before compacting.
    *
-   * Takes precedence over compactPercent when both are set.
+   * Takes precedence over compactAtTokens and compactPercent when multiple are set.
    */
   reserveTokens?: number;
+  /**
+   * Absolute context token count where compaction triggers.
+   *
+   * This controls *when* compaction triggers:
+   *   contextTokens > compactAtTokens
+   *
+   * Useful when you want the same trigger point across models with
+   * different context windows. Ignored when reserveTokens is also set;
+   * takes precedence over compactPercent.
+   */
+  compactAtTokens?: number;
   /**
    * Compaction trigger as a percentage of context window (1–99).
    * Compaction fires when: contextTokens > contextWindow × compactPercent / 100
@@ -29,7 +40,7 @@ export interface ModelThreshold {
    * E.g. compactPercent: 65 means "compact when context is 65% full",
    * equivalent to reserveTokens = 35% of contextWindow.
    *
-   * Ignored when reserveTokens is also set.
+   * Ignored when reserveTokens or compactAtTokens is also set.
    */
   compactPercent?: number;
   /**
@@ -61,17 +72,16 @@ export interface PiVccSettings {
    * "provider/modelId" (e.g., "neuralwatt/zai-org/GLM-5.1-FP8") or
    * just "modelId" (e.g., "GLM-5.1-FP8").
    *
-   * When a model matches, its reserveTokens/compactPercent overrides
-   * pi-core's global compaction.reserveTokens for the *when to compact*
-   * decision. This lets different models compact at different context
-   * fill levels.
+   * When a model matches, its reserveTokens/compactAtTokens/compactPercent
+   * overrides pi-core's global compaction.reserveTokens for the *when to
+   * compact* decision. This lets different models compact at different
+   * context fill levels or absolute token counts.
    */
   modelThresholds?: Record<string, ModelThreshold>;
   /**
    * Global threshold applied to all models not matched by modelThresholds.
-   * Uses compactPercent or reserveTokens (compactPercent is easier — e.g.
-   * 65 means "compact at 65% full"). If omitted, pi-core's global
-   * compaction settings apply (no override).
+   * Uses reserveTokens, compactAtTokens, or compactPercent. If omitted,
+   * pi-core's global compaction settings apply (no override).
    */
   globalThreshold?: ModelThreshold;
   /**
@@ -91,8 +101,8 @@ const DEFAULT_SETTINGS: PiVccSettings = {
  * Lookup order:
  *  1. Exact match on "provider/modelId" key
  *  2. Exact match on "modelId" key
- *  4. globalThreshold from settings
- *  5. undefined (no override — pi-core's global settings apply)
+ *  3. globalThreshold from settings
+ *  4. undefined (no override — pi-core's global settings apply)
  */
 export function getModelThreshold(
   settings: PiVccSettings,
@@ -134,6 +144,33 @@ export function resolveReserveTokens(
     return Math.round(contextWindow * (1 - pct / 100));
   }
   return undefined;
+}
+
+/**
+ * Resolve the context token count where compaction should trigger.
+ *
+ * Precedence: reserveTokens > compactAtTokens > compactPercent.
+ * Returns undefined when the threshold cannot produce a usable trigger.
+ */
+export function resolveTriggerTokens(
+  threshold: ModelThreshold,
+  contextWindow: number,
+): number | undefined {
+  if (contextWindow <= 0) return undefined;
+
+  if (threshold.reserveTokens != null) {
+    return contextWindow - threshold.reserveTokens;
+  }
+
+  if (threshold.compactAtTokens != null) {
+    const tokens = threshold.compactAtTokens;
+    if (!Number.isFinite(tokens) || tokens < 1) return undefined;
+    return Math.round(tokens);
+  }
+
+  const reserve = resolveReserveTokens(threshold, contextWindow);
+  if (reserve == null) return undefined;
+  return contextWindow - reserve;
 }
 
 const readJson = (path: string): Record<string, unknown> | null => {

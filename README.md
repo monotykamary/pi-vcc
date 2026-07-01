@@ -211,7 +211,7 @@ pi-vcc is one of four compaction approaches in the AI coding-agent ecosystem. He
 - **Error resolution detection** — tsc errors in `[Outstanding Context]` are tagged `[RESOLVED]` when the file they reference was subsequently edited, letting the model skip stale errors.
 - **Task-boundary-aware cut** — compaction splits at complete conversational turns, not mid-tool-call. If the assistant's response is in-flight (unmatched tool calls), the cut pushes back to keep the whole turn in the tail.
 - **Structured anchors** — `[Anchors]` section lists commit hashes, error IDs, and key file paths for zero-tool-call recall. The model can find references at a glance instead of calling `vcc_recall`.
-- **Per-model and global compaction thresholds** — configure different `reserveTokens` or `compactPercent` per model and globally, so models with different context windows compact at the right time. Proactive triggering on `agent_end` and `model_select` events compacts earlier for small-context models. Applies to both pi-vcc and pi-core compaction.
+- **Per-model and global compaction thresholds** — configure different `reserveTokens`, `compactAtTokens`, or `compactPercent` per model and globally, so models with different context windows compact at the right time. Proactive triggering on `agent_end` and `model_select` events compacts earlier for small-context models. Applies to both pi-vcc and pi-core compaction.
 
 ## Install
 
@@ -567,24 +567,25 @@ Config lives at `~/.pi/agent/pi-vcc-config.json` (auto-scaffolded on first load 
   "modelThresholds": {
     "neuralwatt/zai-org/GLM-5.1-FP8": { "reserveTokens": 32768 },
     "neuralwatt/moonshotai/Kimi-K2.6": { "compactPercent": 65 },
-    "neuralwatt/neuralwatt/glm-5.1-long": { "compactPercent": 80 }
+    "neuralwatt/glm-5.1-long": { "compactAtTokens": 150000 }
   },
-  "globalThreshold": { "compactPercent": 70 }
+  "globalThreshold": { "compactAtTokens": 150000 }
 }
 ```
 
 - **`overrideDefaultCompaction`** *(default `true`)*: when `true` (default), pi-vcc handles all compaction paths (`/compact`, auto-threshold, `/pi-vcc`). Set `false` to let pi core handle `/compact` and auto-threshold compactions via its default LLM-based compaction.
 - **`debug`** *(default `false`)*: when `true`, each compaction writes detailed info to `/tmp/pi-vcc-debug.json` — message counts, cut boundary, summary preview, sections.
 - **`modelThresholds`** *(default: none)*: per-model compaction thresholds. Keys match against `"provider/modelId"` (e.g., `"neuralwatt/zai-org/GLM-5.1-FP8"`) or just `"modelId"` (e.g., `"GLM-5.1"` — matched only when `provider/modelId` doesn't). Each value has:
-  - **`reserveTokens`**: tokens to reserve for the LLM response. Overrides pi-core's global `compaction.reserveTokens` for matching models. Controls *when* compaction triggers: `contextTokens > contextWindow − reserveTokens`. A higher value compacts earlier (more conservative); a lower value lets context grow larger. Takes precedence over `compactPercent` when both are set.
-  - **`compactPercent`**: compaction trigger as a percentage of context window (1–99). Compaction fires when `contextTokens > contextWindow × compactPercent / 100`. E.g. `65` means "compact when context is 65% full". Ignored when `reserveTokens` is also set.
+  - **`reserveTokens`**: tokens to reserve for the LLM response. Overrides pi-core's global `compaction.reserveTokens` for matching models. Controls *when* compaction triggers: `contextTokens > contextWindow − reserveTokens`. A higher value compacts earlier (more conservative); a lower value lets context grow larger. Takes precedence over `compactAtTokens` and `compactPercent` when multiple are set.
+  - **`compactAtTokens`**: absolute context token count where compaction triggers: `contextTokens > compactAtTokens`. Useful when you want the same trigger point across models with different context windows, such as `{ "compactAtTokens": 150000 }`. Takes precedence over `compactPercent` when both are set.
+  - **`compactPercent`**: compaction trigger as a percentage of context window (1–99). Compaction fires when `contextTokens > contextWindow × compactPercent / 100`. E.g. `65` means "compact when context is 65% full". Ignored when `reserveTokens` or `compactAtTokens` is also set.
   - **`keepRecentTokens`** *(optional)*: advisory token budget for pi-core's default compaction. Pi-vcc's own `buildOwnCut` uses task-boundary heuristics, so this only affects pi-core's cut when `overrideDefaultCompaction` is `false`.
-- **`globalThreshold`** *(default: none)*: global threshold applied to all models not matched by `modelThresholds`. Uses `compactPercent` or `reserveTokens` (`compactPercent` is easier — e.g. `65` means "compact at 65% full"). If omitted, pi-core's global `compaction.reserveTokens` applies (no override).
+- **`globalThreshold`** *(default: none)*: global threshold applied to all models not matched by `modelThresholds`. Uses `reserveTokens`, `compactAtTokens`, or `compactPercent`. If omitted, pi-core's global `compaction.reserveTokens` applies (no override).
 - **`defaultThreshold`** *(default: none, deprecated)*: use `globalThreshold` instead. Backward compatible — still works.
 
 ### How compaction thresholds work
 
-Pi-core's auto-compaction triggers when `contextTokens > contextWindow − reserveTokens`. The global `reserveTokens` (default 16384) is one-size-fits-all — but different models have very different context windows and cost profiles.
+Pi-core's auto-compaction triggers when `contextTokens > contextWindow − reserveTokens`. The global `reserveTokens` (default 16384) is one-size-fits-all — but different models have very different context windows and cost profiles. Pi-vcc also supports `compactAtTokens` when you want an absolute trigger point independent of a model's context window.
 
 Pi-vcc's thresholds provide proactive compaction at both the per-model and global level:
 

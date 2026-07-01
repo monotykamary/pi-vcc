@@ -280,6 +280,106 @@ describe("proactiveThreshold: model_select", () => {
   });
 });
 
+describe("proactiveThreshold: compactAtTokens", () => {
+  afterEach(() => {
+    resetProactiveState();
+    if (existsSync(CONFIG_PATH)) unlinkSync(CONFIG_PATH);
+  });
+
+  test("triggers from globalThreshold when context exceeds compactAtTokens", () => {
+    setConfig({
+      debug: false,
+      overrideDefaultCompaction: true,
+      globalThreshold: { compactAtTokens: 150000 },
+    });
+    const mock = createMockPi(
+      { id: "unknown-model", provider: "other", contextWindow: 1000000 },
+      { tokens: 150001, contextWindow: 1000000, percent: 15 },
+    );
+    registerProactiveThresholdHook(mock.piApi);
+    mock.emit("agent_end", { type: "agent_end", messages: [] });
+    expect(mock.captured).toHaveLength(1);
+    expect(mock.notifyCalls[0].msg).toContain("150.0k tok");
+  });
+
+  test("does NOT trigger from globalThreshold when context equals compactAtTokens", () => {
+    setConfig({
+      debug: false,
+      overrideDefaultCompaction: true,
+      globalThreshold: { compactAtTokens: 150000 },
+    });
+    const mock = createMockPi(
+      { id: "unknown-model", provider: "other", contextWindow: 1000000 },
+      { tokens: 150000, contextWindow: 1000000, percent: 15 },
+    );
+    registerProactiveThresholdHook(mock.piApi);
+    mock.emit("agent_end", { type: "agent_end", messages: [] });
+    expect(mock.captured).toHaveLength(0);
+  });
+
+  test("triggers from modelThresholds when context exceeds compactAtTokens", () => {
+    setConfig({
+      debug: false,
+      overrideDefaultCompaction: true,
+      modelThresholds: {
+        "neuralwatt/glm-5.1-long": { compactAtTokens: 150000 },
+      },
+    });
+    const mock = createMockPi(
+      { id: "glm-5.1-long", provider: "neuralwatt", contextWindow: 1000000 },
+      { tokens: 150001, contextWindow: 1000000, percent: 15 },
+    );
+    registerProactiveThresholdHook(mock.piApi);
+    mock.emit("agent_end", { type: "agent_end", messages: [] });
+    expect(mock.captured).toHaveLength(1);
+  });
+
+  test("reserveTokens takes precedence over compactAtTokens", () => {
+    setConfig({
+      debug: false,
+      overrideDefaultCompaction: true,
+      globalThreshold: { reserveTokens: 50000, compactAtTokens: 100000 },
+    });
+    const mock = createMockPi(
+      { id: "unknown-model", provider: "other", contextWindow: 200000 },
+      { tokens: 120000, contextWindow: 200000, percent: 60 },
+    );
+    registerProactiveThresholdHook(mock.piApi);
+    mock.emit("agent_end", { type: "agent_end", messages: [] });
+    expect(mock.captured).toHaveLength(0);
+  });
+
+  test("compactAtTokens takes precedence over compactPercent", () => {
+    setConfig({
+      debug: false,
+      overrideDefaultCompaction: true,
+      globalThreshold: { compactAtTokens: 150000, compactPercent: 65 },
+    });
+    const mock = createMockPi(
+      { id: "unknown-model", provider: "other", contextWindow: 200000 },
+      { tokens: 140000, contextWindow: 200000, percent: 70 },
+    );
+    registerProactiveThresholdHook(mock.piApi);
+    mock.emit("agent_end", { type: "agent_end", messages: [] });
+    expect(mock.captured).toHaveLength(0);
+  });
+
+  test("does NOT trigger for invalid compactAtTokens", () => {
+    setConfig({
+      debug: false,
+      overrideDefaultCompaction: true,
+      globalThreshold: { compactAtTokens: 0 },
+    });
+    const mock = createMockPi(
+      { id: "unknown-model", provider: "other", contextWindow: 200000 },
+      { tokens: 190000, contextWindow: 200000, percent: 95 },
+    );
+    registerProactiveThresholdHook(mock.piApi);
+    mock.emit("agent_end", { type: "agent_end", messages: [] });
+    expect(mock.captured).toHaveLength(0);
+  });
+});
+
 describe("proactiveThreshold: cooldown", () => {
   afterEach(() => {
     resetProactiveState();

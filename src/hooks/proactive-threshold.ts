@@ -1,5 +1,5 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { loadSettings, getModelThreshold, resolveReserveTokens } from "../core/settings";
+import { loadSettings, getModelThreshold, resolveTriggerTokens } from "../core/settings";
 
 const formatTokens = (n: number): string => {
   if (n >= 1000) return `${(n / 1000).toFixed(1)}k`;
@@ -32,7 +32,7 @@ export const resetProactiveState = () => {
 };
 
 /**
- * Check if per-model threshold has been crossed and trigger compaction
+ * Check if a configured threshold has been crossed and trigger compaction
  * if so. Safe to call from multiple event handlers — cooldown prevents
  * double-triggering.
  */
@@ -44,14 +44,13 @@ const checkAndTrigger = (ctx: { model?: any; getContextUsage?: () => any; compac
   if (!threshold) return;
 
   const contextWindow = ctx.model?.contextWindow ?? 0;
-  const reserve = resolveReserveTokens(threshold, contextWindow);
-  if (reserve == null || contextWindow <= 0) return;
+  const effectiveThreshold = resolveTriggerTokens(threshold, contextWindow);
+  if (effectiveThreshold == null) return;
 
   const usage = ctx.getContextUsage?.();
   if (!usage || usage.tokens === null) return;
 
-  // This threshold's compaction trigger point
-  const effectiveThreshold = contextWindow - reserve;
+  // This threshold's compaction trigger point.
 
   // Only trigger if context EXCEEDS the threshold.
   if (usage.tokens <= effectiveThreshold) return;
@@ -80,19 +79,18 @@ const checkAndTrigger = (ctx: { model?: any; getContextUsage?: () => any; compac
 };
 
 /**
- * Registers proactive per-model compaction thresholds.
+ * Registers proactive configured compaction thresholds.
  *
  * Three triggers:
  *
  * 1. `agent_end` — after each agent run completes, check if context
- *    exceeds the current model's per-model threshold. If the per-model
- *    threshold is *lower* than pi-core's global threshold (meaning the
- *    model wants to compact *earlier*), pi-core won't trigger compaction
- *    at this point. We step in and trigger it proactively.
+ *    exceeds the active configured threshold. If that threshold is lower
+ *    than pi-core's global threshold (meaning this config wants to compact
+ *    earlier), pi-core won't trigger compaction — so we do.
  *
- * 2. `model_select` — when switching to a model with a lower effective
- *    threshold, the current context may already exceed the new model's
- *    capacity. Trigger compaction immediately.
+ * 2. `model_select` — when switching models, the new model may have a
+ *    different threshold. Check immediately in case current context exceeds
+ *    the new threshold.
  *
  * 3. `session_compact` — cooldown tracking + clear proactiveTriggerActive.
  *    After any compaction completes, we set a cooldown to prevent
