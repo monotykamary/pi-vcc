@@ -15,16 +15,16 @@
     "url": "git+https://github.com/monotykamary/pi-vcc.git"
   },
   "peerDependencies": {
-    "@earendil-works/pi-agent-core": "^0.86.0",
-    "@earendil-works/pi-ai": "^0.86.0",
-    "@earendil-works/pi-coding-agent": "^0.86.0",
+    "@earendil-works/pi-agent-core": "^0.87.0",
+    "@earendil-works/pi-ai": "^0.87.0",
+    "@earendil-works/pi-coding-agent": "^0.87.0",
     "typebox": ">=1.1.24 <2.0.0"
   },
   "devDependencies": {
     "@types/node": "^26.0.0",
     "knip": "6.14.1",
     "typescript": "6.0.3",
-    "@earendil-works/pi-coding-agent": "0.86.0",
+    "@earendil-works/pi-coding-agent": "0.87.0",
     "vitest": "4.1.7"
   },
   "scripts": {
