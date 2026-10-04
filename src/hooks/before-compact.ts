@@ -17,10 +17,14 @@ import type { PiVccCompactionDetails } from "../details";
 
 export const PI_VCC_COMPACT_INSTRUCTION = "__pi_vcc__";
 
-interface CompactionStats {
+export interface CompactionStats {
   summarized: number;
   kept: number;
   keptTokensEst: number;
+  /** Provider-measured context size just before this compaction. */
+  tokensBefore: number;
+  /** Estimated context size after this compaction (calibrated to tokensBefore). */
+  postTokensEst?: number;
 }
 
 let lastStats: CompactionStats | null = null;
@@ -35,6 +39,15 @@ export const getLastCompactionStats = () => lastStats;
 const formatTokens = (n: number): string => {
   if (n >= 1000) return `${(n / 1000).toFixed(1)}k`;
   return String(n);
+};
+
+/** Shared toast text for both the auto-compaction and explicit /pi-vcc paths. */
+export const formatCompactionStats = (stats: CompactionStats, compactionLabel = ""): string => {
+  const tail = `tail kept ${stats.kept} msgs (~${formatTokens(stats.keptTokensEst)} tok)`;
+  const head = stats.postTokensEst !== undefined
+    ? `compacted from ${stats.tokensBefore.toLocaleString("en-US")} to ~${formatTokens(stats.postTokensEst)} tokens`
+    : `${stats.summarized} source entries processed`;
+  return `pi-vcc: ${head}; ${tail}.${compactionLabel}`;
 };
 
 /**
@@ -176,10 +189,29 @@ const findMidCycleBoundary = (liveMessages: EntryWithMessage[]): number => {
   return best;
 };
 
-/** Rough token estimate (chars/4) for a live message, consistent with the
- * kept-tokens estimate used elsewhere in this module. */
-function estimateMessageTokens(message: { content: unknown }): number {
-  const c = message.content;
+/** Rough token estimate (chars/4) for a projected message, mirroring
+ * pi-core's estimateTokens so the kept-tail and post-compaction estimates
+ * share one scale (including reasoning, tool arguments, system sections and
+ * tool schemas). */
+function estimateMessageTokens(message: any): number {
+  const role = message?.role;
+  if (role === "system") {
+    let chars = typeof message.content === "string" ? message.content.length : 0;
+    if (message.sections) {
+      for (const section of Object.values(message.sections)) {
+        if (typeof section === "string") chars += section.length;
+      }
+    }
+    if (message.toolsAdded) chars += JSON.stringify(message.toolsAdded).length;
+    return Math.ceil(chars / 4);
+  }
+  if (role === "compactionSummary" || role === "branchSummary") {
+    return Math.ceil((message.summary?.length ?? 0) / 4);
+  }
+  if (role === "bashExecution") {
+    return Math.ceil(((message.command?.length ?? 0) + (message.output?.length ?? 0)) / 4);
+  }
+  const c = message?.content;
   let chars = 0;
   if (typeof c === "string") {
     chars = c.length;
@@ -198,6 +230,33 @@ function estimateMessageTokens(message: { content: unknown }): number {
     }
   }
   return Math.ceil(chars / 4);
+}
+
+/** Estimate the context size after this compaction. pi's chars/4 estimator is
+ * applied to the projected messages, then calibrated by the ratio between the
+ * provider-measured pre-compaction size (`tokensBefore`) and pi's estimate of
+ * the same context. The new summary replaces the summarized messages and the
+ * previous summary. */
+function estimatePostCompactionTokens(
+  ctx: any,
+  tokensBefore: number,
+  removedMessages: any[],
+  summary: string,
+): number | undefined {
+  try {
+    if (!(tokensBefore > 0)) return undefined;
+    const projection = ctx?.sessionManager?.buildSessionProjection?.();
+    const projected: any[] = projection?.messages ?? [];
+    if (projected.length === 0) return undefined;
+    const preEst = projected.reduce((sum, m) => sum + estimateMessageTokens(m), 0);
+    if (preEst <= 0) return undefined;
+    const removedEst = removedMessages.reduce((sum, m) => sum + estimateMessageTokens(m), 0);
+    const summaryEst = Math.ceil(summary.length / 4);
+    const scale = tokensBefore / preEst;
+    return Math.max(0, Math.round(scale * (preEst - removedEst + summaryEst)));
+  } catch {
+    return undefined;
+  }
 }
 
 /** Find a completed tool-cycle boundary within `suffix` such that the kept
@@ -620,11 +679,6 @@ export const registerBeforeCompactHook = (pi: ExtensionAPI) => {
     const keptEntries = keptIdx >= 0
       ? (branchEntries as any[]).slice(keptIdx).filter((e: any) => e.type === "message" && e.message?.role !== "system")
       : [];
-    lastStats = {
-      summarized: agentMessages.length,
-      kept: keptEntries.length,
-      keptTokensEst: keptEntries.reduce((sum: number, e: any) => sum + estimateMessageTokens(e.message), 0),
-    };
 
     const config = settings;
 
@@ -644,6 +698,14 @@ export const registerBeforeCompactHook = (pi: ExtensionAPI) => {
     };
 
     const summary = compile(compileInput);
+
+    lastStats = {
+      summarized: agentMessages.length,
+      kept: keptEntries.length,
+      keptTokensEst: keptEntries.reduce((sum: number, e: any) => sum + estimateMessageTokens(e.message), 0),
+      tokensBefore: preparation.tokensBefore ?? 0,
+      postTokensEst: estimatePostCompactionTokens(ctx, preparation.tokensBefore ?? 0, agentMessages, summary),
+    };
 
     const branchIds = branchEntries.map((e: any) => e.id);
     const cutIdx = branchIds.indexOf(firstKeptEntryId);
@@ -686,6 +748,7 @@ export const registerBeforeCompactHook = (pi: ExtensionAPI) => {
       tokensBefore: preparation.tokensBefore || undefined,
       keptCount: lastStats?.kept || undefined,
       keptTokensEst: lastStats?.keptTokensEst || undefined,
+      postTokensEst: lastStats?.postTokensEst || undefined,
     };
 
     lastCompactWasPiVcc = isPiVcc;
@@ -745,10 +808,7 @@ export const registerBeforeCompactHook = (pi: ExtensionAPI) => {
       if (stats) {
         setTimeout(() => {
           try {
-            ctx?.ui?.notify?.(
-              `pi-vcc: ${stats.summarized} source entries processed; tail kept ${stats.kept} (~${formatTokens(stats.keptTokensEst)} tok).${compactionLabel}`,
-              "info",
-            );
+            ctx?.ui?.notify?.(formatCompactionStats(stats, compactionLabel), "info");
           } catch {}
         }, 500);
       }

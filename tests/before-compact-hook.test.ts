@@ -27,14 +27,17 @@ afterAll(() => {
 });
 
 // Minimal ExtensionAPI stub: capture handlers and provide mocked UI/session APIs.
-function createMockPi() {
+function createMockPi(opts: { projection?: unknown } = {}) {
   const handlers = new Map<string, Array<(event: any, ctx: any) => any>>();
   const notifyCalls: Array<{ msg: string; level: string }> = [];
   const sentMessages: Array<{ message: any; options: any }> = [];
   const ctx = {
     hasUI: true,
     isIdle: () => true,
-    sessionManager: { getEntries: () => [] },
+    sessionManager: {
+      getEntries: () => [],
+      ...(opts.projection ? { buildSessionProjection: () => opts.projection } : {}),
+    },
     ui: {
       notify: (msg: string, level: string) => {
         notifyCalls.push({ msg, level });
@@ -371,5 +374,54 @@ describe("registerBeforeCompactHook: compact-all path", () => {
     // Cut after m3, keep from m4 onward
     expect(result.compaction.firstKeptEntryId).toBe("m4");
     expect(notifyCalls).toHaveLength(0); // no cancel notify on success
+  });
+});
+
+describe("registerBeforeCompactHook: postTokensEst", () => {
+  afterEach(() => {
+    if (existsSync(CONFIG_PATH)) unlinkSync(CONFIG_PATH);
+  });
+
+  const projection = {
+    messages: [
+      { role: "system", content: "", sections: { rules: "r".repeat(4_000) } },
+      { role: "user", content: "o".repeat(1_600) },
+      { role: "assistant", content: [{ type: "text", text: "a".repeat(4_000) }] },
+    ],
+  };
+
+  const entries = () => [
+    msg("m1", "user", "go"),
+    { id: "m2", type: "message", message: { role: "assistant", content: [{ type: "text", text: "summarized" }] } },
+    { id: "m3", type: "message", message: { role: "toolResult", content: [{ type: "text", text: "r" }] } },
+    msg("m4", "user", "keep"),
+    { id: "m5", type: "message", message: { role: "assistant", content: [{ type: "text", text: "tail" }] } },
+  ];
+
+  test("is calibrated against tokensBefore", () => {
+    setConfig({ debug: false, overrideDefaultCompaction: false });
+    const { pi, invoke } = createMockPi({ projection });
+    registerBeforeCompactHook(pi);
+
+    const first = makeEvent(entries(), PI_VCC_COMPACT_INSTRUCTION);
+    first.preparation.tokensBefore = 1_000;
+    invoke(first);
+    const a = getLastCompactionStats()!.postTokensEst!;
+
+    const second = makeEvent(entries(), PI_VCC_COMPACT_INSTRUCTION);
+    second.preparation.tokensBefore = 2_000;
+    invoke(second);
+    const b = getLastCompactionStats()!.postTokensEst!;
+
+    expect(a).toBeGreaterThan(0);
+    expect(Math.abs(b - 2 * a)).toBeLessThanOrEqual(1);
+  });
+
+  test("is omitted when the session manager cannot project", () => {
+    setConfig({ debug: false, overrideDefaultCompaction: false });
+    const { pi, invoke } = createMockPi(); // no buildSessionProjection
+    registerBeforeCompactHook(pi);
+    invoke(makeEvent(entries(), PI_VCC_COMPACT_INSTRUCTION));
+    expect(getLastCompactionStats()!.postTokensEst).toBeUndefined();
   });
 });
