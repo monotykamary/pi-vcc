@@ -185,7 +185,8 @@ function estimateMessageTokens(message: { content: unknown }): number {
     chars = c.length;
   } else if (Array.isArray(c)) {
     for (const part of c as any[]) {
-      if (part.text) chars += part.text.length;
+      if (part.type === "image") chars += 4800;
+      else if (part.text) chars += part.text.length;
       else if (part.type === "toolCall") {
         const args = part.arguments ?? part.input;
         chars += (part.name?.length ?? 0) + (typeof args === "string" ? args.length : JSON.stringify(args ?? "").length);
@@ -617,23 +618,12 @@ export const registerBeforeCompactHook = (pi: ExtensionAPI) => {
     // Count kept messages and estimate tokens
     const keptIdx = (branchEntries as any[]).findIndex((e: any) => e.id === firstKeptEntryId);
     const keptEntries = keptIdx >= 0
-      ? (branchEntries as any[]).slice(keptIdx).filter((e: any) => e.type === "message")
+      ? (branchEntries as any[]).slice(keptIdx).filter((e: any) => e.type === "message" && e.message?.role !== "system")
       : [];
-    const keptChars = keptEntries.reduce((sum: number, e: any) => {
-      const c = e.message?.content;
-      if (typeof c === "string") return sum + c.length;
-      if (Array.isArray(c)) return sum + c.reduce((s: number, p: any) => {
-        if (p.text) return s + p.text.length;
-        if (p.type === "toolCall") return s + (p.name?.length ?? 0) + (typeof p.input === "string" ? p.input.length : JSON.stringify(p.input ?? "").length);
-        if (p.type === "toolResult") return s + (typeof p.content === "string" ? p.content.length : JSON.stringify(p.content ?? "").length);
-        return s;
-      }, 0);
-      return sum;
-    }, 0);
     lastStats = {
       summarized: agentMessages.length,
       kept: keptEntries.length,
-      keptTokensEst: Math.round(keptChars / 4),
+      keptTokensEst: keptEntries.reduce((sum: number, e: any) => sum + estimateMessageTokens(e.message), 0),
     };
 
     const config = settings;
