@@ -1,4 +1,6 @@
 import { describe, it, expect } from "bun:test";
+import { Agent } from "@earendil-works/pi-agent-core";
+import type { Message } from "@earendil-works/pi-ai";
 import { normalize } from "../src/core/normalize";
 import {
   userMsg,
@@ -9,6 +11,21 @@ import {
 } from "./fixtures";
 
 describe("normalize", () => {
+  it("normalizes a Pi 1.1 native Agent tool-batch transcript without changing it", () => {
+    const messages = [
+      userMsg("fix it"),
+      assistantWithToolCall("read", { path: "x.ts" }),
+      toolResult("read", "code"),
+      assistantText("done"),
+    ];
+    const agent = new Agent({ initialState: { messages } });
+    const snapshot = structuredClone(agent.state.messages);
+    const blocks = normalize(agent.state.messages as Message[]);
+    expect(blocks.map(block => block.kind)).toEqual(["user", "tool_call", "tool_result", "assistant"]);
+    expect(blocks[1]).toMatchObject({ name: "read", args: { path: "x.ts" }, sourceIndex: 1 });
+    expect(agent.state.messages).toEqual(snapshot);
+  });
+
   it("returns empty for empty input", () => {
     expect(normalize([])).toEqual([]);
   });

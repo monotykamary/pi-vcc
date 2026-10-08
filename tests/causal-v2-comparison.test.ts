@@ -369,7 +369,7 @@ describe("causal v2 comparison", () => {
     const v1Final = v1Metrics[TOTAL - 1];
 
     expect(v2Final.causalChainRate).toBeGreaterThanOrEqual(v1Final.causalChainRate);
-  });
+  }, 60_000); // 300 deterministic compactions; not a five-second unit workload.
 
   test("determinism: V2 produces identical outputs for identical inputs", () => {
     const m1 = computeMetrics(100, makeRound);
@@ -378,7 +378,7 @@ describe("causal v2 comparison", () => {
       expect(m1[i].outputChars).toBe(m2[i].outputChars);
       expect(m1[i].causalChainRate).toBe(m2[i].causalChainRate);
     }
-  });
+  }, 60_000); // 200 deterministic compactions, with every equality retained.
 
   test("causal extraction: all 20 round specs produce at least one causal element", () => {
     let atLeastOne = 0;
