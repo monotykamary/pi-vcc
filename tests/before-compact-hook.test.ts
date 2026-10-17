@@ -2,7 +2,7 @@ import { describe, test, expect, beforeEach, afterEach, beforeAll, afterAll } fr
 import { existsSync, unlinkSync, writeFileSync, readFileSync, mkdtempSync, rmSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
-import { registerBeforeCompactHook, PI_VCC_COMPACT_INSTRUCTION } from "../src/hooks/before-compact";
+import { registerBeforeCompactHook, getLastCompactionStats, PI_VCC_COMPACT_INSTRUCTION } from "../src/hooks/before-compact";
 import {
   CODEX_OUTPUT_LIMIT_COMPACT_INSTRUCTION,
   isCodexContextOverflowPending,
@@ -300,6 +300,48 @@ describe("registerBeforeCompactHook: pi-fabric interop", () => {
 
     expect(sentMessages).toHaveLength(1);
     expect(sentMessages[0].message.customType).toBe(VCC_RESUME_CUSTOM_TYPE);
+  });
+});
+
+describe("registerBeforeCompactHook: keptTokensEst", () => {
+  afterEach(() => {
+    if (existsSync(CONFIG_PATH)) unlinkSync(CONFIG_PATH);
+  });
+
+  test("counts reasoning and tool-call arguments in the kept tail", () => {
+    setConfig({ debug: false, overrideDefaultCompaction: false });
+    const { pi, invoke } = createMockPi();
+    registerBeforeCompactHook(pi);
+
+    const thinking = "t".repeat(4_000);
+    const command = "c".repeat(4_000);
+    const entries: any[] = [
+      msg("m1", "user", "go"),
+      { id: "m2", type: "message", message: { role: "assistant", content: [{ type: "text", text: "summarized" }] } },
+      { id: "m3", type: "message", message: { role: "toolResult", content: [{ type: "text", text: "r".repeat(400) }] } },
+      msg("m4", "user", "keep this turn"),
+      {
+        id: "m5",
+        type: "message",
+        message: {
+          role: "assistant",
+          content: [
+            { type: "thinking", thinking },
+            { type: "toolCall", id: "tc1", name: "bash", arguments: { command } },
+          ],
+        },
+      },
+      { id: "m6", type: "message", message: { role: "toolResult", toolCallId: "tc1", content: [{ type: "text", text: "ok" }] } },
+    ];
+
+    const result = invoke(makeEvent(entries, PI_VCC_COMPACT_INSTRUCTION));
+    expect(result.compaction).toBeDefined();
+    expect(result.compaction.firstKeptEntryId).toBe("m4");
+
+    // (4000 reasoning + 4000 arguments + name/result) / 4 > 1900. The old
+    // inline reducer ignored reasoning and read arguments from `input`, so it
+    // reported single-digit tokens here.
+    expect(getLastCompactionStats()!.keptTokensEst).toBeGreaterThan(1900);
   });
 });
 
