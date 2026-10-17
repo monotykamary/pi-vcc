@@ -1,5 +1,5 @@
 import { describe, test, expect } from "bun:test";
-import { buildOwnCut } from "../src/hooks/before-compact";
+import { buildOwnCut, formatCompactionStats } from "../src/hooks/before-compact";
 
 const msg = (id: string, role: "user" | "assistant" | "toolResult", content = "x") => ({
   id,
@@ -348,5 +348,22 @@ describe("buildOwnCut oversized-turn guard (maxKeptTokens)", () => {
     expect(r.compactAll).toBe(false);
     expect(r.firstKeptEntryId).toBe("u2");
     expect(r.messages).toHaveLength(2); // u1, a1
+  });
+});
+
+describe("formatCompactionStats", () => {
+  test("reports the compaction range and the retained tail", () => {
+    expect(
+      formatCompactionStats(
+        { summarized: 111, kept: 57, keptTokensEst: 63_234, tokensBefore: 228_481, postTokensEst: 91_583 },
+        " (4th compaction)",
+      ),
+    ).toBe("pi-vcc: compacted from 228,481 to ~91.6k tokens; tail kept 57 msgs (~63.2k tok). (4th compaction)");
+  });
+
+  test("falls back to the processed-entry count when there is no post estimate", () => {
+    expect(
+      formatCompactionStats({ summarized: 111, kept: 57, keptTokensEst: 63_234, tokensBefore: 228_481 }),
+    ).toBe("pi-vcc: 111 source entries processed; tail kept 57 msgs (~63.2k tok).");
   });
 });

@@ -55,7 +55,7 @@ The `messageRange` field in compaction details stores entry IDs `[firstSummarize
 
 Every compaction stores a structured `PiVccCompactionDetails` object in the compaction entry's `details` field:
 
-- `compactor: "pi-vcc"`, `version`, `sections[]`, `sourceMessageCount`, `previousSummaryUsed`, `messageRange`, `compressionRatio`, `timestamp`, `tokensBefore`, `keptCount`, `keptTokensEst`
+- `compactor: "pi-vcc"`, `version`, `sections[]`, `sourceMessageCount`, `previousSummaryUsed`, `messageRange`, `compressionRatio`, `timestamp`, `tokensBefore`, `keptCount`, `keptTokensEst`, `postTokensEst`
 
 **What's novel:** Upstream stores an empty `{}` in compaction details. This metadata is what enables compaction-scoped recall, debugging, and future tooling.
 
