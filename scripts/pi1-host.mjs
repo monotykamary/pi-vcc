@@ -1,4 +1,4 @@
-// Offline Pi 1.3.0 load/lifecycle + native nested-tool/loadout regression.
+// Offline Pi 1.5.0 load/lifecycle + native nested-tool/loadout regression.
 // PI1_HOST_PACKAGE may point at the installed host rather than local dev deps.
 import assert from 'node:assert/strict';
 import test from 'node:test';
@@ -20,19 +20,19 @@ const hostEntry = process.env.PI1_HOST_ENTRY === 'bundle' ? 'dist/bundle/index.j
 const sdk = await import(host ? pathToFileURL(join(host, hostEntry)).href : '@earendil-works/pi-coding-agent');
 const localSdkUrl = import.meta.resolve('@earendil-works/pi-coding-agent');
 const localSdk = await import(localSdkUrl);
-assert.equal(localSdk.VERSION, "1.3.0", 'resolved development SDK VERSION');
-assert.equal(sdk.VERSION, "1.3.0", 'executing host VERSION');
+assert.equal(localSdk.VERSION, "1.5.0", 'resolved development SDK VERSION');
+assert.equal(sdk.VERSION, "1.5.0", 'executing host VERSION');
 const typeboxPackage = findPackageJSON('typebox', pathToFileURL(join(sdk.getPackageDir(), 'package.json')));
 assert.equal(JSON.parse(readFileSync(typeboxPackage, 'utf8')).version, '1.3.27');
 const aiPackage = findPackageJSON('@earendil-works/pi-ai/compat', pathToFileURL(join(sdk.getPackageDir(), 'package.json')));
 const aiManifest = JSON.parse(readFileSync(aiPackage, 'utf8'));
-assert.equal(aiManifest.version, "1.3.0");
+assert.equal(aiManifest.version, "1.5.0");
 const aiUrl = pathToFileURL(join(dirname(aiPackage), aiManifest.exports['./compat'].import)).href;
 const ai = await import(aiUrl);
 const { fauxProvider, fauxAssistantMessage, fauxToolCall, getCurrentTools } = ai;
 
-test('1.3.0: load, declarations, native nested validation/results, refresh and shutdown', { timeout: 30000 }, async () => {
-  assert.equal(JSON.parse(readFileSync(join(sdk.getPackageDir(), 'package.json'), 'utf8')).version, "1.3.0");
+test('1.5.0: load, declarations, native nested validation/results, refresh and shutdown', { timeout: 30000 }, async () => {
+  assert.equal(JSON.parse(readFileSync(join(sdk.getPackageDir(), 'package.json'), 'utf8')).version, "1.5.0");
   if (manifest.name === 'pi-namespace') writeFileSync(join(root, '.pi/namespace.json'), JSON.stringify({ builtinNamespace: 'fs', separator: '__' }));
   const settingsManager = sdk.SettingsManager.inMemory({ compaction: { enabled: false }, retry: { enabled: false }, defaultTools: ['+codemode'] });
   const faux = fauxProvider({ provider: 'pi1-offline', api: 'pi1-offline-api', models: [{ id: 'test', name: 'Offline test', reasoning: false }], tokenSize: { min: 100, max: 100 } });
