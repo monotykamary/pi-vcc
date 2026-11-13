@@ -16,4 +16,6 @@ export interface PiVccCompactionDetails {
   keptCount?: number;
   /** Estimated token count of kept tail */
   keptTokensEst?: number;
+  /** Estimated token count of the context after this compaction */
+  postTokensEst?: number;
 }
