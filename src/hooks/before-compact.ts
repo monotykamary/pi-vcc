@@ -1,5 +1,4 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { writeFileSync } from "fs";
 import { compile, type CompileInput } from "../core/summarize";
 import {
   CODEX_CONTEXT_OVERFLOW_COMPACT_INSTRUCTION,
@@ -9,7 +8,7 @@ import {
   isCodexContextOverflowPending,
   isCodexOutputLimitError,
 } from "../core/codex-output-limit";
-import { loadSettings, type PiVccSettings } from "../core/settings";
+import { loadSettings, writeDebugSnapshot, type PiVccSettings } from "../core/settings";
 import { triggerInvisibleContinue } from "../core/invisible-continue";
 import { isProactiveTriggerActive } from "./proactive-threshold";
 import { countPiVccCompactionsFromSession, ordinalSuffix } from "../core/compaction-count";
@@ -77,7 +76,7 @@ const computeMessageRange = (
 
 const dbg = (settings: PiVccSettings, data: Record<string, unknown>) => {
   if (!settings.debug) return;
-  try { writeFileSync("/tmp/pi-vcc-debug.json", JSON.stringify(data, null, 2)); } catch {}
+  writeDebugSnapshot(data);
 };
 
 const previewContent = (content: unknown): string => {

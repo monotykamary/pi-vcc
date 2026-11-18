@@ -12,11 +12,12 @@ import { VCC_RESUME_CUSTOM_TYPE } from "../src/core/invisible-continue";
 
 let tmpDir: string;
 let CONFIG_PATH: string;
-const DEBUG_PATH = "/tmp/pi-vcc-debug.json";
+let DEBUG_PATH: string;
 
 beforeAll(() => {
   tmpDir = mkdtempSync(join(tmpdir(), "pi-vcc-test-"));
   CONFIG_PATH = join(tmpDir, "pi-vcc-config.json");
+  DEBUG_PATH = `${CONFIG_PATH}.debug.json`;
   process.env.PI_VCC_CONFIG_PATH = CONFIG_PATH;
 });
 

@@ -195,7 +195,7 @@ pi-vcc is one of four compaction approaches in the AI coding-agent ecosystem. He
 | **Determinism** | Non-deterministic (LLM) | Deterministic (no LLM) | Non-deterministic (LLM) / deterministic (SM) | Non-deterministic (LLM) / deterministic (server) |
 | **Latency** | LLM call time | 2–64ms | LLM call time (or instant with SM/micro) | LLM call time (or server-offloaded) |
 | **Cost** | Per-compact LLM tokens | Zero | Per-compact LLM tokens or zero (SM/micro) | Per-compact LLM tokens or server-side |
-| **Debugging** | Basic | `/tmp/pi-vcc-debug.json` snapshots | `logForDebugging`, analytics events | Rollout trace, compaction analytics |
+| **Debugging** | Basic | Config-local JSON snapshots | `logForDebugging`, analytics events | Rollout trace, compaction analytics |
 
 ## Features
 
@@ -574,6 +574,8 @@ pi's built-in file-read tool uses the lowercase `read` tool name, but `FILE_READ
 
 ## Config
 
+Scaffolding will not overwrite invalid config. Writers use a short-lived `<config>.lock` directory beside the actual config file. If a crash leaves it behind, remove the empty lock directory only after all writers have stopped.
+
 Config lives at `~/.pi/agent/pi-vcc-config.json` (auto-scaffolded on first load with safe defaults):
 
 ```json
@@ -590,7 +592,7 @@ Config lives at `~/.pi/agent/pi-vcc-config.json` (auto-scaffolded on first load 
 ```
 
 - **`overrideDefaultCompaction`** *(default `true`)*: when `true` (default), pi-vcc handles all compaction paths (`/compact`, auto-threshold, `/pi-vcc`) unless the active pi-fabric engine owns summary compilation. Set `false` to let pi core handle `/compact` and auto-threshold compactions via its default LLM-based compaction. Explicit `/pi-vcc` always uses pi-vcc.
-- **`debug`** *(default `false`)*: when `true`, each compaction writes detailed info to `/tmp/pi-vcc-debug.json` — message counts, cut boundary, summary preview, sections.
+- **`debug`** *(default `false`)*: when `true`, each compaction writes a snapshot next to its config (`pi-vcc-config.json.debug.json` by default, or `${PI_VCC_CONFIG_PATH}.debug.json` when overridden). The latest snapshot contains message counts, cut boundaries, and may include conversation previews.
 - **`modelThresholds`** *(default: none)*: per-model compaction thresholds. Keys match against `"provider/modelId"` (e.g., `"neuralwatt/zai-org/GLM-5.1-FP8"`) or just `"modelId"` (e.g., `"GLM-5.1"` — matched only when `provider/modelId` doesn't). Each value has:
   - **`reserveTokens`**: tokens to reserve for the LLM response. Overrides pi-core's global `compaction.reserveTokens` for matching models. Controls *when* compaction triggers: `contextTokens > contextWindow − reserveTokens`. A higher value compacts earlier (more conservative); a lower value lets context grow larger. Takes precedence over `compactAtTokens` and `compactPercent` when multiple are set.
   - **`compactAtTokens`**: absolute context token count where compaction triggers: `contextTokens > compactAtTokens`. Useful when you want the same trigger point across models with different context windows, such as `{ "compactAtTokens": 150000 }`. Takes precedence over `compactPercent` when both are set.

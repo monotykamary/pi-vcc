@@ -1,6 +1,7 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
+import { mkdirSync, readFileSync } from "fs";
 import { dirname, join } from "path";
 import { CONFIG_DIR_NAME, getAgentDir } from "@earendil-works/pi-coding-agent";
+import { atomicWriteFile, readJsonConfig, updateJsonConfig } from "./config-file";
 
 const settingsPath = (): string =>
   process.env.PI_VCC_CONFIG_PATH ?? join(getAgentDir(), "pi-vcc-config.json");
@@ -65,7 +66,7 @@ export interface PiVccSettings {
    * falls back to pi core's default LLM-based compaction.
    */
   overrideDefaultCompaction: boolean;
-  /** Write debug snapshot to /tmp/pi-vcc-debug.json on each compaction. */
+  /** Write a debug snapshot alongside the active config on each compaction. */
   debug: boolean;
   /**
    * Per-model compaction thresholds. Keys are matched against
@@ -208,8 +209,13 @@ export function isPiCoreCompactionEnabled(projectCwd?: string): boolean {
 }
 
 export function loadSettings(): PiVccSettings {
-  const parsed = readJson(settingsPath());
-  if (!parsed || typeof parsed !== "object") return { ...DEFAULT_SETTINGS };
+  let parsed: Record<string, unknown> | undefined;
+  try {
+    parsed = readJsonConfig(settingsPath());
+  } catch {
+    return { ...DEFAULT_SETTINGS };
+  }
+  if (!parsed) return { ...DEFAULT_SETTINGS };
   const loaded = { ...DEFAULT_SETTINGS, ...(parsed as Partial<PiVccSettings>) };
   // Backward compat: defaultThreshold → globalThreshold
   if (!loaded.globalThreshold && (parsed as any).defaultThreshold) {
@@ -221,33 +227,38 @@ export function loadSettings(): PiVccSettings {
 /**
  * Ensure the pi-vcc config file (default ~/.pi/agent/pi-vcc-config.json) exists with default keys.
  * - File missing → create with full default block.
- * - File exists but invalid JSON → no-op (don't clobber user file).
- * - File exists and valid → fill in missing default keys, preserve existing values.
+ * - Invalid JSON or non-object → no-op (don't clobber user file).
+ * - Valid object → fill in missing default keys, preserve existing values.
  */
 export function scaffoldSettings(): void {
   try {
-    const path = settingsPath();
-    const dir = dirname(path);
-    if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+    updateJsonConfig(settingsPath(), (parsed) => {
+      if (parsed === undefined) return { ...DEFAULT_SETTINGS };
 
-    if (!existsSync(path)) {
-      writeFileSync(path, `${JSON.stringify(DEFAULT_SETTINGS, null, 2)}\n`);
-      return;
-    }
-
-    const parsed = readJson(path);
-    if (!parsed || typeof parsed !== "object") return; // don't clobber
-
-    let changed = false;
-    const next: Record<string, unknown> = { ...parsed };
-    for (const [key, value] of Object.entries(DEFAULT_SETTINGS)) {
-      if (!(key in next)) {
-        next[key] = value;
-        changed = true;
+      let changed = false;
+      const next = { ...parsed };
+      for (const [key, value] of Object.entries(DEFAULT_SETTINGS)) {
+        if (!(key in next)) {
+          next[key] = value;
+          changed = true;
+        } else if (typeof next[key] !== typeof value) {
+          return undefined; // don't rewrite invalid settings
+        }
       }
-    }
-    if (changed) writeFileSync(path, `${JSON.stringify(next, null, 2)}\n`);
+      return changed ? next : undefined;
+    });
   } catch {
     // best-effort; never crash extension load
+  }
+}
+
+/** Debug snapshots are disposable and last-writer-wins, not shared config. */
+export function writeDebugSnapshot(data: Record<string, unknown>): void {
+  try {
+    const path = `${settingsPath()}.debug.json`;
+    mkdirSync(dirname(path), { recursive: true });
+    atomicWriteFile(path, JSON.stringify(data, null, 2), 0o600);
+  } catch {
+    // best-effort; never interrupt compaction
   }
 }
