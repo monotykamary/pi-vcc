@@ -7,6 +7,12 @@ const msg = (id: string, role: "user" | "assistant" | "toolResult", content = "x
   message: { role, content },
 });
 
+const sys = (id: string) => ({
+  id,
+  type: "message",
+  message: { role: "system", content: "", sections: { preamble: "x" }, timestamp: 0 },
+});
+
 const comp = (id: string, firstKeptEntryId?: string) => ({
   id,
   type: "compaction",
@@ -209,6 +215,27 @@ describe("buildOwnCut", () => {
     // tc_unmatched has no toolResult → push cut back from u3 to u2
     expect(r.compactAll).toBe(false);
     expect(r.firstKeptEntryId).toBe("u2");
+  });
+
+  test("ignores system entries when selecting the cut point", () => {
+    // Pi persists prompt/tool-loadout deltas as role:"system" message entries.
+    // They are not conversation content — pi-core's buildContextEntries drops
+    // them after the compaction boundary and compile() emits nothing for them.
+    // Including them in the live-message view shifted the cut onto a system
+    // entry, making the summarized region system-only and the summary empty.
+    const r = buildOwnCut([
+      sys("s1"), // session's leading system entry
+      msg("u1", "user", "do the task"),
+      sys("s2"), // prompt/tool-loadout delta persisted mid-session
+      msg("u2", "user", "next prompt"),
+      msg("a2", "assistant", "response"),
+    ]);
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.compactAll).toBe(false);
+    expect(r.firstKeptEntryId).toBe("u2");
+    // Summarized region must not contain the system entries
+    expect(r.messages.map((m) => m.role)).toEqual(["user"]);
   });
 
   test("Anthropic-style session: many matched toolCalls should not cause compact-all", () => {

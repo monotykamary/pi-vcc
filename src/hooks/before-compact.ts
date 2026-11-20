@@ -284,6 +284,7 @@ export function buildOwnCut(branchEntries: any[], options?: { maxKeptTokens?: nu
       if (
         e.type === "message" &&
         e.message &&
+        e.message.role !== "system" &&
         !isHiddenEmptyCustomMessage(e.message)
       ) {
         liveMessages.push({ entry: e, message: e.message });
@@ -298,6 +299,7 @@ export function buildOwnCut(branchEntries: any[], options?: { maxKeptTokens?: nu
       if (
         e.type === "message" &&
         e.message &&
+        e.message.role !== "system" &&
         !isHiddenEmptyCustomMessage(e.message)
       ) {
         liveMessages.push({ entry: e, message: e.message });
